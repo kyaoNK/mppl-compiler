@@ -64,11 +64,7 @@ int parse ( void ) {
 
 /* Read Next Token */
 void next_token ( void ) {
-    /* Pretty print */
-    // pretty_print();
-
     /* Read next token */
-    // token_pre = token;
     token = scan();
 }
 
@@ -82,11 +78,11 @@ void print_tab ( void ) {
 /* Error Message */
 int error_syntax ( char * mes , int pattern ) {
     if (pattern == ERR_PAT_TOKEN) {
-        printf("\nERROR PARSE: line=%d | TOKEN=%d, STR: %s , MES: %s\n", get_linenum(), token, string_attr, mes);
+        printf("\nERROR PARSE: line=%d \n| MES: %s\n", get_linenum(), mes);
         end_scan();
     }
     else {
-        printf("| %s", mes);
+        printf("| %s\n", mes);
     }
     return ERROR;
 }
