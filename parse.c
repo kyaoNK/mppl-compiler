@@ -78,7 +78,7 @@ void print_tab ( void ) {
 /* Error Message */
 int error_syntax ( char * mes , int pattern ) {
     if (pattern == ERR_PAT_TOKEN) {
-        printf("\nERROR PARSE: line=%d \n| MES: %s\n", get_linenum(), mes);
+        printf("\n----- ERROR PARSE: line=%d ---s--\n| MES: %s\n", get_linenum(), mes);
         end_scan();
     }
     else {
