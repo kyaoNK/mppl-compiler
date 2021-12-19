@@ -1,13 +1,37 @@
-#include "parse.h"
+#include "compiler.h"
 
 /* ---------- Global Variable --------------------------------- */
 int token;      /* current token */
 char string_attr[MAX_STR_SIZE]; /* string or name */
+int num_attr;
 int cnt_iter;   /* iteration statement nest counter */
+
+#if FLAG_PP
 int cnt_tab;    /* tab counter */
+#endif
+
+#if FLAG_CR
+
+/* id info */
+char *var_name_str;
+char *procedure_name_str;
+int  *is_formal_parameters;
+/* type info */
+int size_array;
+
+/* flag */
+int flag_in_subprogram;
+int flag_in_formal_parameters;
+int flag_in_variable_declaration;
+int flag_procedure_name_in_subprogram_declaration;
+int flag_in_call_statement;
+
+/* id */
+ID *id_procedure_name;
+
+#endif
 
 /* ---------- Function Prototype Declaration ------------------ */
-/* ----- Macro Syntax in Parse ----------------- */
 static int program ( void );      /* Program */
 static int block ( void );              /* Block */
 static int var_decl ( void );           /* Variable Declaration */
@@ -45,874 +69,1264 @@ static int empty_state ( void );        /* Empty Statement */
 
 /* ----- Other in Parse ----------------- */
 void next_token ( void ) ;  /* Read Next Token and Pretty Print */
+static int error_syntax ( char * mes , int pattern) ;   /* Out Error Message */
+static int error_semantic ( char * mes ) ;
+
+#if FLAG_PP
 void print_tab ( void ) ;   /* Print Tab */
-static int error ( char * mes , int pattern);  /* Out Error Message */
+#endif
 
 /* Main parse */
 int parse ( void ) {
-
-    /* initialize counter */
+#if FLAG_DEBUG
+    printf("parse\n");
+#endif
+    /* initialize */
     cnt_iter = 0;
+    #if FLAG_PP    
     cnt_tab = 0;
+    #endif
 
-    next_token();   /* Read next token */
-    
-    int res = program();    /* Program */
+#if FLAG_CR
+    flag_in_subprogram = FALSE;
+    flag_in_formal_parameters = FALSE;
+    is_formal_parameters = &flag_in_formal_parameters;
+    flag_in_variable_declaration = FALSE;
+    flag_procedure_name_in_subprogram_declaration = FALSE;
+
+    size_array = 0;
+    id_procedure_name = NULL;
+    init_id_root();
+#endif
+
+    next_token();
+    int res = program();
+
+#if FLAG_CR
+    if ( res == NORMAL ) print_crossreference();
+#endif
 
     return res;
 }
 
 /* Read Next Token */
 void next_token ( void ) {
-    /* Read next token */
     token = scan();
 }
 
+#if FLAG_PP
+/* Print Tab */
 void print_tab ( void ) {
     int i;
     for (i = 0; i < cnt_tab; i++) {
         printf("\t");
     }
 }
+#endif
 
 /* Error Message */
 int error_syntax ( char * mes , int pattern ) {
     if (pattern == ERR_PAT_TOKEN) {
-        printf("\n----- ERROR PARSE: line=%d ---s--\n| MES: %s\n", get_linenum(), mes);
+        printf("\n----- ERROR SYNTAX: line=%d -----\n| MES: %s\n", get_linenum(), mes);
         end_scan();
     }
     else {
         printf("| %s\n", mes);
     }
-    return ERROR;
+    return (ERROR);
 }
 
-/* ---------- Syntax Function Definition ----------------------------- */
+int error_semantic ( char * mes ) {
+    printf("\n----- ERROR SEMANTIC: line=%d -----\n| MES: %s\n", get_linenum(), mes);
+    return (ERROR);
+}
+
+/* -------------------------------------------------------------------------------------- */
+/* ----------------------------- Syntax Function Definition ----------------------------- */
+/* -------------------------------------------------------------------------------------- */
 
 /* program ::= "program" "NAME" ";" BLOCK "." */
 static int program ( void ) {
-    /* "program" */
+#if FLAG_DEBUG
+    printf("program\n");
+#endif
     if ( token != TPROGRAM ) return (error_syntax("Keyword 'program' is not found at the first of program", ERR_PAT_TOKEN));
+    #if FLAG_PP
     printf("%s ", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
 
-    /* "NAME" */
     if ( token != TNAME ) return (error_syntax("Program 'NAME' is not found after keyword 'program'", ERR_PAT_TOKEN));   /* check "NAME" */
+    #if FLAG_PP    
     printf("%s", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
     
-    /* ";" */
     if ( token != TSEMI ) return (error_syntax("Semicolon ';' is not found after program name", ERR_PAT_TOKEN));      /* check ";" */
+    #if FLAG_PP    
     printf("%s\n", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
     
-    /* BLOCK */
     if ( block() == ERROR ) return (error_syntax("in block", ERR_PAT_SYNTAX));
     
-    /* "." */
     if ( token != TDOT ) return (error_syntax("Period '.' is not found at the end of program", ERR_PAT_TOKEN));    /* check "." */
+    #if FLAG_PP    
     printf("%s\n", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
     
-    return NORMAL;
+    return (NORMAL);
 }
 
 /* BLOCK ::= { VARIABLE_DECLARATION | SUBPROGRAM_DECLARATION } COMPOUND_STATEMENT */
 static int block ( void ) {
-    /* { VARIABLE_DECLARATION | SUBPROGRAM_DECLARATION } */
+#if FLAG_DEBUG
+    printf("block\n");
+#endif
     while ( token == TVAR || token == TPROCEDURE ) {
-        /* VARIABLE_DECLARATION | SUBPROGRAM_DECLARATION */
         if ( token == TVAR ) {
-            /* VARIABLE_DECLARATION */
             if (var_decl() == ERROR) return (error_syntax("in variable declaration", ERR_PAT_SYNTAX));
         }
         else if ( token == TPROCEDURE ) {
-            /* SUBPROGRAM_DECLARATION */
             if (subprogram_decl() == ERROR ) return (error_syntax("in subprogram declaration", ERR_PAT_SYNTAX));
         }
     }
 
-    /* COMPOUND_STATEMENT */
+    #if FLAG_PP    
     cnt_tab = 0;
+    #endif
+
+#if FLAG_DEBUG
+    printf("global");
+    print_id_table(global_id_root);
+#endif
     if ( comp_state() == ERROR ) return (error_syntax("in compound statement", ERR_PAT_SYNTAX));
 
-    return NORMAL;
+    return (NORMAL);
 }
 
-/* VARIABLE_DECLARATION ::= "var" VARIABLE_NAMES ":" TYPE ";" {  VARIABLE_NAMES ":" TYPE ";" } */
 static int var_decl ( void ) {
-    /* "var" */
+#if FLAG_CR
+#if FLAG_DEBUG
+    printf("variable declaration\n");
+#endif
+    flag_in_variable_declaration = TRUE;
+#endif
+    int res_type;
     if ( token != TVAR ) return (error_syntax("Keyword 'var' is not found at the first of variable declaration", ERR_PAT_TOKEN));
+    #if FLAG_PP    
     cnt_tab++;
     print_tab();
     printf("%s ", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
 
-    /* VARIABLE_NAMES */
     if ( var_names() == ERROR ) return (error_syntax("in variable names", ERR_PAT_SYNTAX));
 
-    /* ":" */
     if ( token != TCOLON ) return (error_syntax("Colon ':' is not found after variable names", ERR_PAT_TOKEN));
+    #if FLAG_PP    
     printf(" %s ", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
 
-    /* TYPE */
-    if ( type() == ERROR ) return (error_syntax("in type", ERR_PAT_SYNTAX));
+    if ( ( res_type = type() ) == ERROR ) return (error_syntax("in type", ERR_PAT_SYNTAX));
+#if FLAG_CR
+    assign_type(res_type);
+#endif
     
-    /* ";" */
     if ( token != TSEMI ) return (error_syntax("Semicolon ';' is not found at the end of variable declaration", ERR_PAT_TOKEN));
+    #if FLAG_PP
     printf("%s\n", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
     
-    /* { VARIABLE_NAMES ":" TYPE ";" } */
     while ( token == TNAME ) {
+        #if FLAG_PP
         print_tab();
         printf("\t");
-        /* VARIABLE_NAMES */
+        #endif
         if ( var_names() == ERROR ) return (error_syntax("in variable names", ERR_PAT_SYNTAX));
-        
-        /* ":" */
-        if ( token != TCOLON ) return (error_syntax("Colon ':' is not found after variable names", ERR_PAT_TOKEN));
-        printf(" %s ", string_attr);
-        next_token();   /* Read next token */
-        
-        /* TYPE */
-        if ( type() == ERROR ) return (error_syntax("in type", ERR_PAT_SYNTAX));
-        
-        /* ";" */
-        if ( token != TSEMI ) return (error_syntax("Semicolon ';' is not found at the end of variable declaration", ERR_PAT_TOKEN));
-        printf("%s\n", string_attr);
-        next_token();   /* Read next token */
-    }
-    cnt_tab--;
 
-    return NORMAL;
+        if ( token != TCOLON ) return (error_syntax("Colon ':' is not found after variable names", ERR_PAT_TOKEN));
+        #if FLAG_PP
+        printf(" %s ", string_attr);
+        #endif
+        next_token();
+
+        res_type = type();
+        if ( res_type == ERROR ) return (error_syntax("in type", ERR_PAT_SYNTAX));
+#if FLAG_CR
+        assign_type(res_type);
+#endif
+
+        if ( token != TSEMI ) return (error_syntax("Semicolon ';' is not found at the end of variable declaration", ERR_PAT_TOKEN));
+        #if FLAG_PP
+        printf("%s\n", string_attr);
+        #endif
+        next_token();
+    }
+    #if FLAG_PP
+    cnt_tab--;
+    #endif
+#if FLAG_CR
+    flag_in_variable_declaration = FALSE;
+#endif
+
+    return (NORMAL);
 }
 
 /* VARIABLE_NAMES ::= VARIABLE_NAME { "," VARIABLE_NAME } */
 static int var_names ( void ) {
-    /* VARIABLE_NAME */
+#if FLAG_DEBUG
+    printf("variable names\n");
+#endif
     if ( var_name() == ERROR ) return (error_syntax("in variable name", ERR_PAT_SYNTAX));
+#if FLAG_CR
+    if ( flag_in_variable_declaration || flag_in_formal_parameters ) {  /* define */
+        add_undefined_type_id(string_attr);
+    }
+    else {  /* refer */
+        if ( add_ref_linenum(string_attr) == ERROR ) return (error_semantic("This variable name does not be defined"));
+    }
+#endif
 
-    /* { "," VARIABLE_NAME } */
+    next_token();
+
     while ( token == TCOMMA ) {
-        /* "," Already Checked */
+        #if FLAG_PP
         printf("%s ", string_attr);
-        next_token();   /* Read next token */
-
-        /* VARIABLE_NAME */
+        #endif
+        next_token();
         if ( var_name() == ERROR ) return (error_syntax("in variable name", ERR_PAT_SYNTAX));
+#if FLAG_CR
+        if ( flag_in_variable_declaration || flag_in_formal_parameters ) {  /* define */
+            add_undefined_type_id(string_attr);
+        }
+        else {  /* refer */
+            if ( add_ref_linenum(string_attr) == ERROR ) return (error_semantic("This variable name does not be defined"));
+        }
+#endif
+        next_token();
     }
 
-    return NORMAL;
+    return (NORMAL);
 }
 
 /* VARIABLE_NAME ::= "NAME" */
 static int var_name ( void ) {
-    /* "NAME" */
+#if FLAG_DEBUG
+    printf("variable name\n");
+#endif
     if ( token != TNAME ) return (error_syntax("Variable 'NAME' is not found at the variable name", ERR_PAT_TOKEN));
-    printf("%s", string_attr);
-    next_token();   /* Read next token */
 
-    return NORMAL;
+    #if FLAG_PP
+    printf("%s", string_attr);
+    #endif
+
+    return (NORMAL);
 }
 
 /* TYPE ::= STANDARD_TYPE | ARRAY_TYPE */
 static int type ( void ) {
-    /* STANDARD_TYPE | ARRAY_TYPE */
+#if FLAG_DEBUG
+    printf("type\n");
+#endif
+    int res_type;
     if ( token == TINTEGER || token == TBOOLEAN || token == TCHAR ) {
-        /* STANDARD_TYPE */
-        if ( standard_type() == ERROR ) return (error_syntax("in standard type", ERR_PAT_SYNTAX));
+        res_type = standard_type();
+        if ( res_type == ERROR ) return (error_syntax("in standard type", ERR_PAT_SYNTAX));
     }
     else if ( token == TARRAY ) {
-        /* ARRAY_TYPE */
-        if ( array_type() == ERROR ) return (error_syntax("in array type", ERR_PAT_SYNTAX));
+        res_type = array_type();
+        if ( res_type == ERROR ) return (error_syntax("in array type", ERR_PAT_SYNTAX));
     }
     else {
         return (error_syntax("standard type , array type is not found in type", ERR_PAT_TOKEN));
     }
 
-    return NORMAL;
+    return res_type;
 }
 
 /* STANDARD_TYPE ::= "integer" | "boolean" | "char" */
-static int standard_type( void ) {
-    /* "integer" | "boolean" | "char" */
+static int standard_type ( void ) {
+#if FLAG_DEBUG
+    printf("standard type\n");
+#endif
+    int res_type;
     if ( token == TINTEGER || token == TBOOLEAN || token == TCHAR) {
+        #if FLAG_PP
         printf("%s", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        switch ( token )
+        {
+        case TINTEGER :
+            res_type = TYPE_INT ;    break;
+        case TBOOLEAN : 
+            res_type = TYPE_BOOL;    break;
+        case TCHAR :
+            res_type = TYPE_CHAR;    break;
+        default:
+            res_type = TYPE_NONE;    break;
+        }
+        next_token();
+        return res_type;
     }
     else {
         return (error_syntax("Keyword neither 'integer' , 'boolean' , 'char' is not found", ERR_PAT_TOKEN));
     }
-
-    return NORMAL;
 }
 
 /* ARRAY_TYPE ::= "array" "[" "UNSIGNED_INTEGER" "]" "of" STANDARD_TYPE */
 static int array_type ( void ) {
-    /* "array" */
+#if FLAG_DEBUG
+    printf("array type\n");
+#endif
     if ( token != TARRAY ) return (error_syntax("Keyword 'array' is not found at the first of array type", ERR_PAT_TOKEN));
+    #if FLAG_PP
     printf("%s ", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
 
-    /* "[" */
     if ( token != TLSQPAREN ) return (error_syntax("Left square paren '[' is not found after keyword 'array'", ERR_PAT_TOKEN));
+    #if FLAG_PP
     printf("%s", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
 
-    /* "UNSIGNED_INTEGER" */
     if ( token != TNUMBER ) return (error_syntax("Unsigned integer is not found after left square paren '['", ERR_PAT_TOKEN));
-    printf("%s", string_attr);
-    next_token();   /* Read next token */
 
-    /* "]" */
+    #if FLAG_PP
+    printf("%s", string_attr);
+    #endif
+
+#if FLAG_CR
+    if ( flag_in_variable_declaration ) {
+        size_array = num_attr;
+        if ( size_array < 1) return (error_semantic("Array size must be defined 1 or more"));
+    }
+    else {
+        if ( num_attr < 0 ) return (error_semantic("Array index must be 0 or more"));
+    }
+#endif
+
+    next_token();
+
     if ( token != TRSQPAREN ) return (error_syntax("Right square paren ']' is not found after unsigned integer", ERR_PAT_TOKEN));
+    #if FLAG_PP
     printf("%s", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
 
-    /* "of" */
     if ( token != TOF ) return (error_syntax("Keyword 'of' is not found after right square paren ']'", ERR_PAT_TOKEN));
+    #if FLAG_PP
     printf(" %s", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
 
-    /* STANDARD_TYPE */
-    if ( standard_type() == ERROR ) return (error_syntax("in standard type", ERR_PAT_SYNTAX));
+    int res_type = standard_type();
+    if ( res_type == ERROR ) return (error_syntax("in standard type", ERR_PAT_SYNTAX));
     
-    return NORMAL;
+    return ( res_type== TINTEGER ) ? TYPE_ARRAY_INT : ( res_type == TBOOLEAN ) ? TYPE_ARRAY_BOOL : TYPE_ARRAY_CHAR ;
 }
 
 /* SUBPROGRAM_DECLARATION ::= "procedure" PROCEDURE_NAME [ FORMAL_PARAMETERS ] ";" [ VARIABLE_DECLARATION ] COMPOUND_STATEMENT ";" */
 static int subprogram_decl ( void ) {
-    /* "procedure" */
+#if FLAG_DEBUG
+    printf("subprogram declaration\n");
+#endif
+    flag_in_subprogram = TRUE;
     if ( token != TPROCEDURE ) return (error_syntax("Keyword 'procedure' is not found at the first of subprogram declaration", ERR_PAT_TOKEN));
+
+    #if FLAG_PP
     cnt_tab++;
     print_tab();
     printf("%s ", string_attr);
-    next_token();   /* Read next token */
-    
-    /* PROCEDURE_NAME */
+    #endif
+
+    next_token();
+
+    flag_procedure_name_in_subprogram_declaration = TRUE;
     if ( procedure_name() == ERROR ) return (error_syntax("in procedure name", ERR_PAT_SYNTAX));
-    
-    /* [ FORMAL_PARAMETERS ] */
+    flag_procedure_name_in_subprogram_declaration = FALSE;
+
     if ( token == TLPAREN ) {
-        /* FORMAL_PARAMETERS */
+        flag_in_formal_parameters = TRUE;
         if ( formal_params() == ERROR ) return (error_syntax("in formal parameters", ERR_PAT_SYNTAX));
+        flag_in_formal_parameters = FALSE;
     } 
 
-    /* ";" */
     if ( token != TSEMI ) return (error_syntax("Semicolon ';' is not found after procedure name or formal paramters", ERR_PAT_TOKEN));
+    
+    #if FLAG_PP
     printf("%s\n", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    
+    next_token(); 
 
-    /* [ VARIABLE_DECLARATION ] */
     if ( token == TVAR ) { 
-        /* VARIABLE_DECLARATION */
         if ( var_decl() == ERROR ) return (error_syntax("in variable declaration", ERR_PAT_SYNTAX));
     }
 
-    /* COMPOUND_STATEMENT */
     if ( comp_state() == ERROR ) return (error_syntax("in compound statement", ERR_PAT_SYNTAX));
 
-    /* ";" */
     if ( token != TSEMI ) return (error_syntax("Semicolon ';' is not found at the end of subprogram declaration", ERR_PAT_TOKEN));
+    #if FLAG_PP
     printf("%s\n", string_attr);
     cnt_tab--;
-    next_token();   /* Read next token */
+    #endif
+    next_token();
 
-    return NORMAL;
+    flag_in_subprogram = FALSE;
+
+    free_procedure_name();
+#if FLAG_DEBUG
+    printf("procname:%s in free\n", procedure_name_str);
+#endif
+
+    return (NORMAL);
 }
 
 /* PROCEDURE_NAME ::= "NAME" */
 static int procedure_name ( void ) {
-    /* "NAME" */
-    if ( token != TNAME ) return (error_syntax("Procedure 'NAME' is not found at the procedure name", ERR_PAT_TOKEN));
-    printf("%s", string_attr);
-    next_token();   /* Read next token */
+#if FLAG_DEBUG
+    printf("procedure name\n");
+#endif
 
-    return NORMAL;
+    if ( token != TNAME ) return (error_syntax("Procedure 'NAME' is not found at the procedure name", ERR_PAT_TOKEN));
+    #if FLAG_PP
+    printf("%s", string_attr);
+    #endif
+
+#if FLAG_CR
+    if ( flag_procedure_name_in_subprogram_declaration ) {
+        add_undefined_type_id(string_attr);
+        assign_type(TYPE_PROCEDURE);
+        set_procedure_name(string_attr);
+    }
+    else {
+        if ( add_ref_linenum(string_attr) == ERROR ) return (error_semantic("This procedure name does not be defined"));
+        id_procedure_name = search_procedure_id(string_attr);
+    }
+#endif
+
+    next_token();
+
+    return (NORMAL);
 }
 
 /* FORMAL_PARAMS ::= "(" VARIABLE_NAMES ":" TYPE { ";" VARIABLE_NAMES ":" TYPE } ")"  */
 static int formal_params ( void ) {
-    /* "(" */
-    if ( token != TLPAREN ) return (error_syntax("Left paren '(' is not found at the first formal parameters", ERR_PAT_TOKEN));
-    printf("%s", string_attr);
-    next_token();   /* Read next token */
+#if FLAG_DEBUG
+    printf("formal parameters\n");
+#endif
 
-    /* VARIABLE_NAMES */
+    if ( token != TLPAREN ) return (error_syntax("Left paren '(' is not found at the first formal parameters", ERR_PAT_TOKEN));
+    #if FLAG_PP
+    printf("%s", string_attr);
+    #endif
+    next_token();
+
     if ( var_names() == ERROR) return (error_syntax("in variable names", ERR_PAT_SYNTAX));
     
-    /* ":" */
     if ( token != TCOLON ) return (error_syntax("Colon ':' is not found after variable names", ERR_PAT_TOKEN));
+    #if FLAG_PP
     printf("%s", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
     
-    /* TYPE */
-    if ( type() == ERROR ) return (error_syntax("in type", ERR_PAT_SYNTAX));
-    
-    /* { ";" VARIABLE_NAMES ":" TYPE } */
-    while ( token == TSEMI ) {
-        /* ";" already checked */
-        printf("%s ", string_attr);
-        next_token();   /* Read next token */
+    int type_in_formal_param = TYPE_NONE;
+    if ( ( type_in_formal_param = type() ) == ERROR ) return (error_syntax("in type", ERR_PAT_SYNTAX));
+#if FLAG_CR
+    if ( is_array_type(type_in_formal_param) ) return (error_semantic("formal parametes types must not be array when formal parameters"));
+    assign_type(type_in_formal_param);
+#endif
 
-        /* VARIABLE_NAMES */
+    while ( token == TSEMI ) {
+        #if FLAG_PP
+        printf("%s ", string_attr);
+        #endif
+        next_token();
+
         if ( var_names() == ERROR ) return (error_syntax("in variable names", ERR_PAT_SYNTAX));
         
-        /* ":" */
         if ( token != TCOLON ) return (error_syntax("Colon ':' is not found after variable names", ERR_PAT_TOKEN));
+        #if FLAG_PP
         printf("%s", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
         
-        /* TYPE */
-        if ( type() == ERROR ) return (error_syntax("in type", ERR_PAT_SYNTAX));
+        if ( ( type_in_formal_param = type() ) == ERROR ) return (error_syntax("in type", ERR_PAT_SYNTAX));
+#if FLAG_CR
+        if ( is_array_type(type_in_formal_param) ) return (error_semantic("formal parametes types must not be array when formal parameters"));
+        assign_type(type_in_formal_param);
+#endif
+    
     }
     
-    /* ")" */
     if ( token != TRPAREN ) return (error_syntax("Right Paren ')' is not found at the end of fromal parameters", ERR_PAT_TOKEN));
+    #if FLAG_PP
     printf("%s", string_attr);
-    next_token();   /* Read next token */
-    
-    return NORMAL;
+    #endif
+    next_token();
+
+    return (NORMAL);
 }
 
 /* COMPOUND_STATEMENT ::= "begin" STATEMENT { ";" STATEMENT } "end" */
 static int comp_state ( void ) {
-    /* "begin" */
+#if FLAG_DEBUG
+    printf("compound statement\n");
+#endif
     if ( token != TBEGIN ) return (error_syntax("Keyword 'begin' is not found at the first of compound statement", ERR_PAT_TOKEN));
+    #if FLAG_PP
     print_tab();
     printf("%s\n", string_attr);
     cnt_tab++;
-    next_token();   /* Read next token */
+    #endif
+    next_token();
 
-    /* STATEMENT */
     if ( statement() == ERROR ) return (error_syntax("in statement", ERR_PAT_SYNTAX));
     
-    /* { ";" STATEMENT } */
     while ( token == TSEMI ) {
-        /* ";" alread checked */
+        #if FLAG_PP
         printf("%s\n", string_attr);
-        next_token();   /* Read next token */
-    
-        /* STATEMENT */
+        #endif
+        next_token();
+
         if ( statement() == ERROR ) return (error_syntax("in statement", ERR_PAT_SYNTAX));
     }
 
-    /* "end" */
     if ( token != TEND ) return (error_syntax("Keyword 'end' is not found at the end of compound statement", ERR_PAT_TOKEN));
+    #if FLAG_PP
     printf("\n");
     cnt_tab--;
     print_tab();
     printf("%s", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
     
-    return NORMAL;
+    return (NORMAL);
 }
 
 /* STATEMENT ::= ASSIGNMENT | CONDITION | ITERATION | BREAK | CALL | RETURN | INPUT | OUTPUT | COMPOUND | EMPTY _STATEMENT */
 static int statement ( void ) {
+#if FLAG_DEBUG
+    printf("statement\n");
+#endif
     if ( token == TNAME ) {
-        /* ASSIGNMENT_STATEMENT */
         if ( assign_state() == ERROR ) return (error_syntax("in assign statement", ERR_PAT_SYNTAX));
     }
     else if ( token == TIF ) {
-        /* CONDITION_STATEMENT */
         if ( cond_state() == ERROR ) return (error_syntax("in condition statement", ERR_PAT_SYNTAX));
     }
     else if ( token == TWHILE ) {
-        /* ITERATION_STATEMENT */
         if ( iter_state() == ERROR ) return (error_syntax("in iteration statement", ERR_PAT_SYNTAX));
     }
     else if ( token == TBREAK ) {
-        /* EXIT_STATEMENT */
         if ( exit_state() == ERROR ) return (error_syntax("in exit statement", ERR_PAT_SYNTAX));
     }
     else if ( token == TCALL ) {
-        /* CALL_STATEMENT */
         if ( call_state() == ERROR ) return (error_syntax("in call statement", ERR_PAT_SYNTAX));
     }
     else if ( token == TRETURN ) {
-        /* RETURN STATEMENT */
         if ( return_state() == ERROR ) return (error_syntax("in return statement", ERR_PAT_SYNTAX));
     }
     else if ( token == TREAD || token == TREADLN ) {
-        /* INPUT_STATEMENT */
         if ( input_state() == ERROR ) return (error_syntax("in input statement", ERR_PAT_SYNTAX));
     }
     else if ( token == TWRITE || token == TWRITELN ) { 
-        /* OUTPUT_STATEMENT */
         if ( output_state() == ERROR ) return (error_syntax("in output statement", ERR_PAT_SYNTAX));
     }
     else if ( token == TBEGIN ) {
-        /* COMPOUND_STATEMENT */
         if ( comp_state() == ERROR ) return (error_syntax("in compound statement", ERR_PAT_SYNTAX));
     }
     else if ( token == 0 ) {
-        /* EMPTY_STATEMENT */
         if ( empty_state() == ERROR ) return (error_syntax("in empty statement", ERR_PAT_SYNTAX));
     }
-    return NORMAL;
+    return (NORMAL);
 }
 
 /* CONDITION_STATEMENT ::= "if" EXPRESSION "then" STATEMENT [ "else" STATEMENT ] */
 static int cond_state ( void ) {
-    /* "if" */
-    if ( token != TIF ) return (error_syntax("Keyword  'if' is not found at the first of condition statement", ERR_PAT_TOKEN));
+#if FLAG_DEBUG
+    printf("condition statement\n");
+#endif
+    if ( token != TIF ) return (error_syntax("Keyword 'if' is not found at the first of condition statement", ERR_PAT_TOKEN));
+    #if FLAG_PP
     print_tab();
     printf("%s ", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
 
-    /* EXPRESSION */
-    if ( expression() == ERROR ) return (error_syntax("in expression", ERR_PAT_SYNTAX));
-    
-    /* "then" */
+    int expression_type = TYPE_NONE;
+    if ( ( expression_type = expression() ) == ERROR ) return (error_syntax("in expression", ERR_PAT_SYNTAX));
+
+#if FLAG_CR
+    if ( expression_type != TYPE_BOOL ) return (error_semantic("Expression type in condition statement must be bool"));
+#endif    
+
     if ( token != TTHEN ) return (error_syntax("Keyword 'then' is not found after expression", ERR_PAT_TOKEN));
+    #if FLAG_PP
     printf(" %s\n", string_attr);
     cnt_tab++;
-    next_token();   /* Read next token */
+    #endif
+    next_token();
 
-    /* STATEMENT */
     if ( statement()== ERROR ) return (error_syntax("in statement", ERR_PAT_SYNTAX));
 
-    /* [ "else" STATEMENT ] */
     if ( token == TELSE ) {
-        /* "else" already checked */
+        #if FLAG_PP
         printf("\n");
         cnt_tab--;
         print_tab();
         printf("%s\n", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
+        
+        #if FLAG_PP
         cnt_tab++;
+        #endif
 
-        /* STATEMENT */
         if ( statement()== ERROR ) return (error_syntax("in statement", ERR_PAT_SYNTAX));
     }
+    #if FLAG_PP
     cnt_tab--;
-    return NORMAL;
+    #endif
+    return (NORMAL);
 }
 
 /* ITERATION_STATEMENT ::= "while" EXPRESSION "do" STATEMENT */
 static int iter_state ( void ) {
-    /* "while" */
+#if FLAG_DEBUG
+    printf("iteration statement\n");
+#endif
     if ( token != TWHILE ) return (error_syntax("Keyword 'while' is not found at the first of iteration statement", ERR_PAT_TOKEN));
+    #if FLAG_PP
     print_tab();
     printf("%s ", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
 
-    /* EXPRESSION */
-    if ( expression() == ERROR ) return (error_syntax("in expression", ERR_PAT_SYNTAX));
+    int expression_type = TYPE_NONE;
+    if ( ( expression_type = expression() ) == ERROR ) return (error_syntax("in expression", ERR_PAT_SYNTAX));
+#if FLAG_CR
+    if ( expression_type != TYPE_BOOL ) return (error_semantic("Expression type in iteration statement must be bool"));
+#endif
 
-    /* "do" */
     if ( token != TDO ) return (error_syntax("Keyword 'do' is not found at the expression", ERR_PAT_TOKEN));
+    #if FLAG_PP
     printf(" %s\n", string_attr);
     cnt_tab++;
-    next_token();   /* Read next token */
+    #endif
+    next_token();
 
-    /* Iteration counter increment */
-    cnt_iter++;
+    cnt_iter++; /* Iteration counter increment */
 
-    /* STATEMENT */
     if ( statement() == ERROR ) return (error_syntax("in statement", ERR_PAT_SYNTAX));
 
-    /* Iteration counter decrement */
-    cnt_iter--;
+    cnt_iter--; /* Iteration counter decrement */
 
+    #if FLAG_PP
     cnt_tab--;
+    #endif
 
-    return NORMAL;
+    return (NORMAL);
 }
 
 /* EXIT_STATE ::= "break" */
 static int exit_state ( void ) {
-    /* "break" */
+#if FLAG_DEBUG
+    printf("eixt statement\n");
+#endif
     if ( token != TBREAK ) return (error_syntax("Keyword 'break' is not found at the exit statement", ERR_PAT_TOKEN));
+    #if FLAG_PP
     print_tab();
     printf("%s", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
 
     if ( cnt_iter < 1) return (error_syntax("'break' not exit in iteration", ERR_PAT_TOKEN));
 
-    return NORMAL;
+    return (NORMAL);
 }
 
 /* CALL_STATEMENT ::= "call" PROCEDURE_NAME [ "(" EXPRESSIONS ")" ] */
 static int call_state ( void ) {
-    /* "call" */
+#if FLAG_DEBUG
+    printf("call statement\n");
+#endif
+#if FLAG_CR
+    flag_in_call_statement = TRUE;
+#endif
+
     if ( token != TCALL ) return (error_syntax("Keyword 'call' is not found at the first of call statement", ERR_PAT_TOKEN));
+    #if FLAG_PP
     print_tab();
     printf("%s ", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
 
-    /* PROCEDURE_NAME */
     if ( procedure_name() == ERROR ) return (error_syntax("in procedure name", ERR_PAT_SYNTAX));
 
-    /* [ "(" EXPRESSIONS ")" ] */
     if ( token == TLPAREN ) {
-        /* "(" already checked */
+        #if FLAG_PP
         printf("%s", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
 
-        /* EXPRESSIONS */
-        if ( expressions() == ERROR ) return (error_syntax("in expression", ERR_PAT_SYNTAX));
+        if ( expressions() == ERROR ) return (error_syntax("in expressions", ERR_PAT_SYNTAX));
 
-        /* ")" */
         if ( token != TRPAREN ) return (error_syntax("Right paren ')' is not found after expression", ERR_PAT_TOKEN));
+        #if FLAG_PP
         printf("%s", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
     }
-    return NORMAL;
+    else {
+        if( id_procedure_name->id_type->next_param_type != NULL ) return(error_semantic("Incorrect number of arguments"));
+    }
+    flag_in_call_statement = FALSE;
+
+    return (NORMAL);
 }
 
 /* EXPRESSIONS ::= EXPRESSION { "," EXPRESSION } */
 static int expressions ( void ) {
-    /* EXPRESSION */
-    if ( expression() == ERROR ) return (error_syntax("in expression", ERR_PAT_SYNTAX));
+#if FLAG_DEBUG
+    printf("expressions\n");
+#endif
+#if FLAG_CR
+    int expression_type = TYPE_NONE;
+    int num_expressions = 0;
+    Type *param_type = id_procedure_name->id_type->next_param_type;
 
-    /* { "," EXPRESSION } */
-    while ( token == TCOMMA ) {
-        /* "," already checked */
-        printf("%s ", string_attr);
-        next_token();   /* Read next token */
+    // printf("param type:%d\n", param_type->type);
+#endif
 
-        /* EXPRESSION */
-        if ( expression() == ERROR ) return (error_syntax("in expression", ERR_PAT_SYNTAX));
+    if ( ( expression_type = expression() ) == ERROR ) return (error_syntax("in expression", ERR_PAT_SYNTAX));
+
+#if FLAG_CR
+    num_expressions++;
+    if ( flag_in_call_statement ) {
+        if ( param_type == NULL ) return (error_semantic("This procedure takes no argments"));
+        if ( param_type->type != expression_type) return(error_semantic("Type mismatch."));
     }
-    return NORMAL;
+    
+#endif
+
+    while ( token == TCOMMA ) {
+        #if FLAG_PP
+        printf("%s ", string_attr);
+        #endif
+        next_token();
+
+        if ( ( expression_type = expression() ) == ERROR ) return (error_syntax("in expression", ERR_PAT_SYNTAX));
+#if FLAG_CR
+        num_expressions++;
+        if ( flag_in_call_statement ) {
+            param_type = param_type->next_param_type;
+            if ( param_type == NULL ) return (error_semantic("This procedure takes no argments"));
+            if ( param_type->type != expression_type) return(error_semantic("Type mismatch."));
+        } 
+#endif
+    }
+
+#if FLAG_CR
+    if( flag_in_call_statement ) {
+        // printf("param type:%d\n", param_type->next_param_type->type);
+        if( param_type->next_param_type != NULL ) return (error_semantic("Insufficient arguments when calling the procedure name"));
+    }
+#endif
+    return (NORMAL);
 }
 
 /* RETURN_STATEMENT ::= "return" */
 static int return_state ( void ) {
-    /* "return" */
+#if FLAG_DEBUG
+    printf("return statement\n");
+#endif
     if ( token != TRETURN ) return (error_syntax("Keyword 'return' is not found at return statement", ERR_PAT_TOKEN));
+    #if FLAG_PP
     print_tab();
     printf("%s", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
 
-    return NORMAL;
+    return (NORMAL);
 }
 
 /* ASSIGNMENT ::= LEFT_PART ":=" EXPRESSION */
 static int assign_state ( void ) {
+#if FLAG_DEBUG
+    printf("assignment\n");
+#endif
+    #if FLAG_PP
     print_tab();
-    /* LEFT_PART */
-    if ( left_part() == ERROR ) return (error_syntax("in left part", ERR_PAT_SYNTAX));
+    #endif
+    int left_part_type = TYPE_NONE;
+    int expression_type = TYPE_NONE;
 
-    /* ":=" */
+    if ( ( left_part_type = left_part() ) == ERROR ) return (error_syntax("in left part", ERR_PAT_SYNTAX));
+
     if ( token != TASSIGN ) return (error_syntax("Assign ':=' is not found after left part", ERR_PAT_TOKEN));
+    #if FLAG_PP
     printf(" %s ", string_attr);
-    next_token();   /* Read next token */
+    #endif
+    next_token();
 
-    /* EXPRESSION */
-    if ( expression() == ERROR ) return (error_syntax("in expression", ERR_PAT_SYNTAX));
-    
-    return NORMAL;
+    if ( ( expression_type = expression() ) == ERROR ) return (error_syntax("in expression", ERR_PAT_SYNTAX));
+
+#if FLAG_CR
+#if FLAG_DEBUG
+    printf("left:%s, exp:%s\n", get_type_str(left_part_type), get_type_str(expression_type));
+#endif
+
+    if ( left_part_type != expression_type ) return (error_semantic("leftpart type and expression type must be same type"));
+    if ( !(TYPE_INT <= left_part_type && left_part_type <= TYPE_BOOL) ) return (error_semantic("assignment type must be standard type"));
+#endif
+
+    return (NORMAL);
 }
 
 /* LEFT_PART ::= VARIABLE */
 static int left_part ( void ) {
-    /* VARIABLE */
-    if ( variable() == ERROR ) return (error_syntax("in variable", ERR_PAT_SYNTAX));
+#if FLAG_DEBUG
+    printf("left part\n");
+#endif
+    int left_part_type = TYPE_NONE;
+    if ( ( left_part_type = variable() ) == ERROR ) return (error_syntax("in variable", ERR_PAT_SYNTAX));
 
-    return NORMAL;
+    return (left_part_type);
 }
 
 /* VARIABLE ::= VARIABLE_NAME [ "[" EXPRESSION "]" ] */
 static int variable ( void ) {
-    /* VARIABLE_NAME */
+#if FLAG_DEBUG
+    printf("variable\n");
+#endif
+    int variable_type = TYPE_NONE;
     if ( var_name() == ERROR ) return (error_syntax("in variable name", ERR_PAT_SYNTAX));
-
-    /* [ "[" EXPRESSION "]" ] */
-    if ( token == TLSQPAREN ) {
-        /* "[" already checked */
-        printf("%s", string_attr);
-        next_token();   /* Read next token */
-
-        /* EXPRESSION */
-        if ( expression() == ERROR ) return (error_syntax("in expression", ERR_PAT_SYNTAX));
-
-        /* "]" */
-        if ( token != TRSQPAREN ) return (error_syntax("Right square paren ']' is not found after expression", ERR_PAT_TOKEN));
-        printf("%s", string_attr);
-        next_token();   /* Read next token */
+#if FLAG_CR
+    if ( ( variable_type = add_ref_linenum(string_attr) ) == ERROR ) {
+        return (error_semantic("This variable is not defined"));
     }
-    return NORMAL;
+#endif
+
+    next_token();
+
+    if ( token == TLSQPAREN ) {
+        #if FLAG_PP
+        printf("%s", string_attr);
+        #endif
+        next_token();
+
+        if ( !is_array_type(variable_type) ) return (error_semantic("Variable type must be array when there is a square paren"));
+
+        int expression_type = TYPE_NONE;
+        if ( ( expression_type = expression() ) == ERROR ) return (error_syntax("in expression", ERR_PAT_SYNTAX));
+        if ( expression_type != TYPE_INT ) return (error_semantic("Expression type must be int in square parene when variable type is array"));
+
+        if ( token != TRSQPAREN ) return (error_syntax("Right square paren ']' is not found after expression", ERR_PAT_TOKEN));
+        #if FLAG_PP
+        printf("%s", string_attr);
+        #endif
+        next_token();
+
+        if ( variable_type == TYPE_ARRAY_INT ) variable_type = TYPE_INT;
+        else if ( variable_type == TYPE_ARRAY_BOOL ) variable_type = TYPE_BOOL;
+        else if ( variable_type == TYPE_ARRAY_CHAR ) variable_type = TYPE_CHAR;
+    }
+
+    return (variable_type);
 }
 
 /* EXPRESSION ::= SIMPLE_EXPRESSION { RELATION_OPERATOR SIMPLE_EXPRESSION } */
 static int expression ( void ) {
-    /* SIMPLE_EXPRESSION */
-    if ( simple_expression() == ERROR ) return (error_syntax("in simple expression", ERR_PAT_SYNTAX));
+#if FLAG_DEBUG
+    printf("expression\n");
+#endif
+    int simple1_type = TYPE_NONE;
+    int simple2_type = TYPE_NONE;
 
-    /* { RELATION_OPERATOR SIMPLE_EXPRESSION } */
+    if ( ( simple1_type = simple_expression() ) == ERROR ) return (error_syntax("in simple expression", ERR_PAT_SYNTAX));
+
     while ( token == TEQUAL || token == TNOTEQ || token == TLE || token == TLEEQ || token == TGR || token == TGREQ ) {
-        /* RELATION_OPERATOR */
         if ( relat_ope() == ERROR ) return (error_syntax("in relation operator", ERR_PAT_SYNTAX));
 
-        /* SIMPLE_EXPRESSION */
-        if ( simple_expression() == ERROR ) return (error_syntax("in simple expression", ERR_PAT_SYNTAX));
+        if ( ( simple2_type = simple_expression() ) == ERROR ) return (error_syntax("in simple expression", ERR_PAT_SYNTAX));
+#if FLAG_CR
+        if ( simple1_type != simple2_type ) return (error_semantic("Simple expression type must be same standard type when related operator"));
+        simple1_type = TYPE_BOOL;
+#endif
     }
-    return NORMAL;
+    return (simple1_type);
 }
 
 /* SIMPLE_EXPRESSION ::= [ "+" | "-" ] TERM { ADDITIVE_OPERATOR TERM }*/
 static int simple_expression ( void ) {
-    /* [ "+" | "-" ] */
+#if FLAG_DEBUG
+    printf("simple expression\n");
+#endif
+    int term1_type = TYPE_NONE;
+    int term2_type = TYPE_NONE;
+
+#if FLAG_CR
+    int flag_left_ope = FALSE;
+#endif
+
     if ( token == TPLUS || token == TMINUS ) {
+        #if FLAG_PP
         printf("%s", string_attr);
-        next_token();   /* Read next token */
+        #endif
+
+#if FLAG_CR
+        flag_left_ope = TRUE;
+#endif
+        next_token();
     }
 
-    /* TERM */
-    if ( term() == ERROR ) return (error_syntax("in term", ERR_PAT_SYNTAX));
-    
-    /* { ADDITIVE_OPERATOR TERM } */
+    if ( ( term1_type = term() ) == ERROR ) return (error_syntax("in term", ERR_PAT_SYNTAX));
+
+#if FLAG_CR
+    if ( flag_left_ope && term1_type != TYPE_INT ) return (error_semantic("The left term type must be integer when there is a '+' or '-' on first in simple expression"));
+#endif
+
     while ( token == TPLUS || token == TMINUS || token == TOR ) {
-        /* ADDITIVE_OPERATOR */
+        int add_ope_token = token;
         if ( add_ope() == ERROR ) return (error_syntax("in additive operator", ERR_PAT_SYNTAX));
 
-        /* TERM */
-        if ( term() == ERROR ) return (error_syntax("in term", ERR_PAT_SYNTAX));
+#if FLAG_CR
+        if ( ( add_ope_token == TPLUS || add_ope_token == TMINUS ) && term1_type != TYPE_INT ) return (error_semantic("Term type must be integer when operator is '+' or '-'"));
+        if ( add_ope_token == TOR && term1_type != TYPE_BOOL ) return (error_semantic("Term type must be boolean when operator is 'or'"));
+#endif
+        if ( ( term2_type = term() ) == ERROR ) return (error_syntax("in term", ERR_PAT_SYNTAX));
+#if FLAG_CR
+        if ( term1_type == TYPE_INT && term2_type != TYPE_INT ) return (error_semantic("Term type must be integer when operator is '+' or '-'"));
+        else if ( term1_type == TYPE_BOOL && term2_type != TYPE_BOOL ) return (error_semantic("Term type must be boolean when operator is 'or'"));
+#endif
     }
 
-    return NORMAL;
+    return (term1_type);
 }
 
 /* TERM ::= FACTOR { MULTIPLICATIVE_OPERATOR FACTOR } */
 static int term ( void ) {
-    /* FACTOR */
-    if ( factor() == ERROR ) return (error_syntax("in factor", ERR_PAT_SYNTAX));
+#if FLAG_DEBUG
+    printf("term\n");
+#endif
+    int factor1_type = TYPE_NONE;
+    int factor2_type = TYPE_NONE;
 
-    /* { MULTIPLICATIVE_OPERATOR FACTOR } */
+    if ( ( factor1_type = factor() ) == ERROR ) return (error_syntax("in factor", ERR_PAT_SYNTAX));
+
     while ( token == TSTAR || token == TDIV || token == TAND ) {
-        /* MULTIPLICATIVE_OPERATOR */
+        int multiply_ope_token = token;
         if ( multiply_ope() == ERROR ) return (error_syntax("in multiply operator", ERR_PAT_SYNTAX));
-
-        /* FACTOR */
-        if ( factor() == ERROR ) return (error_syntax("in factor", ERR_PAT_SYNTAX));
+#if FLAG_CR
+        if ( ( multiply_ope_token == TSTAR || multiply_ope_token == TDIV ) && factor1_type != TYPE_INT ) return (error_semantic("Factor type must be integer when operator is '*' or 'div'"));
+        if ( multiply_ope_token == TAND && factor1_type != TYPE_BOOL ) return (error_semantic("Factor type must be boolean when operator is 'and'"));
+#endif
+        if ( ( factor2_type = factor() ) == ERROR ) return (error_syntax("in factor", ERR_PAT_SYNTAX));
+#if FLAG_CR
+        if ( factor1_type == TYPE_INT && factor2_type != TYPE_INT ) return (error_semantic("Factor type must be integer when operator is '*' or 'div'"));
+        else if ( factor1_type == TYPE_BOOL && factor2_type != TYPE_BOOL ) return (error_semantic("Factor type must be boolean when operator is 'and'"));  
+#endif
     }
-    return NORMAL;
+    return (factor1_type);
 }
 
 /* FACTOR ::= VARIABLE | CONSTANT | "(" EXPRESSION ")" | "not" FACTOR | STANDARD_TYPE "(" EXPRESSION ")" */
 static int factor ( void ) {
+#if FLAG_DEBUG
+    printf("factor\n");
+#endif
+    int factor_type = TYPE_NONE;
     if ( token == TNAME ) {
-        /* VARIABLE */
-        if ( variable() == ERROR ) return (error_syntax("in variable", ERR_PAT_SYNTAX));
+        if ( ( factor_type = variable() ) == ERROR ) return (error_syntax("in variable", ERR_PAT_SYNTAX));
     }
     else if ( token == TNUMBER || token == TFALSE || token == TTRUE || token == TSTRING ) {
-        /* CONSTANT */
-        if ( constant() == ERROR ) return (error_syntax("in constant", ERR_PAT_SYNTAX));
+        if ( ( factor_type = constant() ) == ERROR ) return (error_syntax("in constant", ERR_PAT_SYNTAX));
     }
     else if ( token == TLPAREN ) {
-        /* "(" already checked */
+        #if FLAG_PP
         printf("%s", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
         
-        /* EXPRESSION */
-        if ( expression() == ERROR ) return (error_syntax("in expression", ERR_PAT_SYNTAX));
+        if ( ( factor_type = expression() ) == ERROR ) return (error_syntax("in expression", ERR_PAT_SYNTAX));
         
-        /* ")" */
         if ( token != TRPAREN ) return (error_syntax("Right paren ')' is not found at the end of factor", ERR_PAT_TOKEN));
+        #if FLAG_PP
         printf("%s", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
     }
     else if ( token == TNOT ) {
-        /* "not" already checked */
+        #if FLAG_PP
         printf("%s", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
 
-        /* FACTOR */
-        if ( factor() == ERROR ) return (error_syntax("in factor", ERR_PAT_SYNTAX));
+        if ( ( factor_type = factor() ) == ERROR )  return (error_syntax("in factor", ERR_PAT_SYNTAX));
+#if FLAG_CR
+        if ( factor_type != TYPE_BOOL ) return (error_semantic("Type operator of 'not' must be boolean"));
+#endif
     }
     else if ( token == TINTEGER || token == TBOOLEAN || token == TCHAR ) {
-        /* STANDARD_TYPE */
-        if ( standard_type() == ERROR ) return (error_syntax("in standard type", ERR_PAT_SYNTAX));
+        if ( ( factor_type = standard_type() ) == ERROR ) return (error_syntax("in standard type", ERR_PAT_SYNTAX));
 
-        /* "(" */
         if ( token != TLPAREN ) return (error_syntax("Left paren '(' is not found at the first of factor", ERR_PAT_TOKEN));
+        #if FLAG_PP
         printf("%s", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
 
-        /* EXPRESSION */
-        if ( expression() == ERROR ) return (error_syntax("in expression", ERR_PAT_SYNTAX));
+        int expression_type = TYPE_NONE;
+        if ( ( expression_type = expression() ) == ERROR ) return (error_syntax("in expression", ERR_PAT_SYNTAX));
 
-        /* ")" */
+#if FLAG_CR
+        if ( expression_type != TYPE_INT && expression_type != TYPE_BOOL && expression_type != TYPE_CHAR ) return (error_semantic("Expression type must be standard type"));
+#endif
+
         if ( token != TRPAREN ) return (error_syntax("Right paren ')' is not found at the end of factor", ERR_PAT_TOKEN));
+        #if FLAG_PP
         printf("%s", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
     }
 
-    return NORMAL;
+    return (factor_type);
 }
 
 /* CONSTANT ::= "UNSIGNED_INTEGER" | "false" | "true" | "STRING" */
 static int constant ( void ) {
-    /* "UNSIGNED_INTEGER" | "false" | "true" | "STRING" */
-    if ( token == TNUMBER || token == TFALSE || token == TTRUE || token == TSTRING ) {
-        if (token == TSTRING) {
-            printf("'%s'", string_attr);
-        }
-        else {
-            printf("%s", string_attr);
-        }
-        next_token();   /* Read next token */
+#if FLAG_DEBUG
+    printf("constant\n");
+#endif
+    int constant_type = TYPE_NONE;
+    if ( token == TNUMBER ) {
+        #if FLAG_PP
+        printf("%s", string_attr);
+        #endif
+#if FLAG_CR
+        constant_type = TYPE_INT;
+#endif
+    }
+    else if ( token == TFALSE || token == TTRUE ) {
+        #if FLAG_PP
+        printf("%s", string_attr);
+        #endif
+#if FLAG_CR
+        constant_type = TYPE_BOOL;
+#endif
+    }
+    else if ( token == TSTRING ) {
+        #if FLAG_PP
+        printf("'%s'", string_attr);
+        #endif
+#if FLAG_CR
+        constant_type = TYPE_CHAR;
+#endif
+        if ( strlen(string_attr) != 1 ) return (error_semantic("Constant string length must be one"));
     }
     else {
         return (error_syntax("Unsigned integer , 'false' , 'true' , string token is not found at the constant", ERR_PAT_TOKEN));
     }
 
-    return NORMAL;
+    next_token();
+    return (constant_type);
 }
 
 /* MULTIPLICATIVE_OPERATOR ::= "*" | "div" | "and" */
 static int multiply_ope ( void ) {
-    /* "*" | "div" | "and" */
+#if FLAG_DEBUG
+    printf("multiply operator\n");
+#endif
     if ( token == TSTAR || token == TDIV || token == TAND ) {
+        #if FLAG_PP
         printf("%s", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
     }
     else {
         return (error_syntax("Star '*' , 'div' , 'and' is not found at the multiplicative operator", ERR_PAT_TOKEN));
     }
-    return NORMAL;
+    return (NORMAL);
 }
 
 /* ADDITIVE_OPERATOR ::= "+" | "-" | "or" */
 static int add_ope ( void ) {
-    /* "+" | "-" | "or" */
+#if FLAG_DEBUG
+    printf("additive operator\n");
+#endif
     if ( token == TPLUS || token == TMINUS || token == TOR ) {
+        #if FLAG_PP
         printf("%s", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
     }
     else {
         return (error_syntax("Plus '+' , minus '-' , 'or' is not found at the additive operator", ERR_PAT_TOKEN));
     }
 
-    return NORMAL;
+    return (NORMAL);
 }
 
 /* RELATIONAL_OPERATOR ::= "=" | "<>" | "<" | "<=" | ">" | ">=" */
 static int relat_ope ( void ) {
-    /* "=" | "<>" | "<" | "<=" | ">" | ">=" */
+#if FLAG_DEBUG
+    printf("relational operator\n");
+#endif
     if ( token == TEQUAL || token == TNOTEQ || token == TLE || token == TLEEQ || token == TGR || token == TGREQ ) {
+        #if FLAG_PP
         printf(" %s ", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
     }
     else {
         return (error_syntax("Equal '=', noteq <>, le <, leeq <=, gr >, greq >= is not found at the relation operator", ERR_PAT_TOKEN));
     }
-    return NORMAL;
+    return (NORMAL);
 }
 
 /* INPUT_STATEMENT ::= ( "read" | "readln" ) [ "(" VARIABLE { "," VARIABLE } ")" ] */
 static int input_state ( void ) {
-    /* ( "read" | "readlen" ) */
+#if FLAG_DEBUG
+    printf("input statement\n");
+#endif
+    int variable_type = TYPE_NONE;
+
     if ( token == TREAD || token == TREADLN ) {
+        #if FLAG_PP
         print_tab();
         printf("%s ", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
     }
     else {
         return (error_syntax("Keyword 'read' , 'readln' is not found at the first of input statement", ERR_PAT_TOKEN));
     }
 
-    /* [ "(" VARIABLE { "," VARIABLE } ")" ] */
     if ( token == TLPAREN ) {
-        /* "(" already check */
+        #if FLAG_PP
         printf("%s", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
 
-        /* VARIABLE */
-        if ( variable() == ERROR ) return (error_syntax("in variable", ERR_PAT_SYNTAX));
-
-        /* { "," VARIABLE } */
+        if ( ( variable_type = variable() ) == ERROR ) return (error_syntax("in variable", ERR_PAT_SYNTAX));
+#if FLAG_CR
+        if ( variable_type != TYPE_INT && variable_type != TYPE_CHAR ) return (error_semantic("Variable type must be integer or char"));
+#endif
         while ( token == TCOMMA ) {
-            /* "," already checked */
+            #if FLAG_PP
             printf("%s ", string_attr);
-            next_token();   /* Read next token */
-
-            /* VARIABLE */
-            if ( variable() == ERROR ) return (error_syntax("in variable", ERR_PAT_SYNTAX));
+            #endif
+            next_token();
+            
+            if ( ( variable_type = variable() ) == ERROR ) return (error_syntax("in variable", ERR_PAT_SYNTAX));
+#if FLAG_CR
+            if ( variable_type != TYPE_INT && variable_type != TYPE_CHAR ) return (error_semantic("Variable type must be integer or char"));
+#endif
         }
 
-        /* ")" */
         if ( token != TRPAREN ) return (error_syntax("Right paren ')' is not found at the end of input statement", ERR_PAT_TOKEN));
+        #if FLAG_PP
         printf("%s", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
     }
-    return NORMAL;
+    return (NORMAL);
 }
 
 /* OUTPUT_STATEMENT ::= ( "write" | "writeln" ) [ "(" OUTPUT_FORMAT { "," OUTPUT_FORMAT } ")" ] */
 static int output_state ( void ) {
-    /* ( "write" | "writelen" ) */
+#if FLAG_DEBUG
+    printf("output statement\n");
+#endif
     if ( token == TWRITE || token == TWRITELN ) {
+        #if FLAG_PP
         print_tab();
         printf("%s ", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
     }
     else {
         return (error_syntax("Keyword 'write' , 'writeln' is not found at the first of output statement", ERR_PAT_TOKEN));
     }
 
-    /* [ "(" OUTPUT_FORMAT { "," OUTPUT_FORMAT } ")" ] */
     if ( token == TLPAREN ) {
-        /* "(" already checked */
+        #if FLAG_PP
         printf("%s", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
 
-        /* OUTPUT_FORMAT */
         if ( output_format() == ERROR ) return (error_syntax("in output format", ERR_PAT_SYNTAX));
 
-        /* { "," OUTPUT_FORMAT } */
         while ( token == TCOMMA ) {
-            /* "," already checked */
+            #if FLAG_PP
             printf("%s ", string_attr);
-            next_token();   /* Read next token */
-            
-            /* OUTPUT_FORMAT */
+            #endif
+            next_token();
+
             if ( output_format() == ERROR ) return (error_syntax("in output format", ERR_PAT_SYNTAX));
         }
 
-        /* ")" */
         if ( token != TRPAREN ) return (error_syntax("Right paren ')' is not found at the end of output statement", ERR_PAT_TOKEN));
+        #if FLAG_PP
         printf("%s", string_attr);
-        next_token();   /* Read next token */
+        #endif
+        next_token();
     }
 
-    return NORMAL;
+    return (NORMAL);
 }
 
 /* OUTPUT_FORMAT ::= EXPRESSION [ ":" "UNSIGNED_INTEGER" ] | "STRING" */
 static int output_format ( void ) {
-    /* "STRING" */
+#if FLAG_DEBUG
+    printf("output format\n");
+#endif
     if ( token == TSTRING ) {
-        /* "STRING" already checked */
+        #if FLAG_PP
         printf("'%s'", string_attr);
-        next_token();   /* Read next token */
-        return NORMAL;
+        #endif
+#if FLAG_CR        
+        if ( strlen(string_attr) < 1 ) return (error_semantic("String length must be 0 or 2 or more"));
+#endif
+        next_token();
+        return (NORMAL);
     }
-    /* EXPRESSION [ ":" "UNSIGNED_INTEGER" ] */
-    else if ( expression() == ERROR ) {
+
+    int expression_type = expression();
+    if ( expression_type == ERROR ) {
         return (error_syntax("in expression", ERR_PAT_SYNTAX));
     }
-    /* [ ":" UNSIGNGED_INTEGER ] */
-    else if ( token == TCOLON ) {
-        /* ":" already checked */
-        printf("%s", string_attr);
-        next_token();   /* Read next token */
+    else {
+#if FLAG_CR
+        if ( expression_type == TYPE_ARRAY ) return (error_semantic("Expression type must be standard type"));
+#endif
+        if ( token == TCOLON ) {
+            #if FLAG_PP
+            printf("%s", string_attr);
+            #endif
+            next_token();
 
-        /* "UNSIGNED_INTEGER" */
-        if ( token != TNUMBER ) return (error_syntax("Unsigned integer is not found at the end of output format", ERR_PAT_TOKEN));
-        printf("%s", string_attr);
-        next_token();   /* Read next token */
-    } 
+            if ( token != TNUMBER ) return (error_syntax("Number is not found at the end of output format", ERR_PAT_TOKEN));
+            #if FLAG_PP
+            printf("%s", string_attr);
+            #endif
+            next_token();
+        } 
+    }
 
-    return NORMAL;
+    return (NORMAL);
 }
 
 /* EMPTY_STATEMENT ::=  */
 static int empty_state ( void ) {
-    return NORMAL;
+#if FLAG_DEBUG
+    printf("empty statement\n");
+#endif
+    return (NORMAL);
 }

@@ -1,4 +1,4 @@
-#include "lexical.h" /* Read token list header file */
+#include "compiler.h" /* Read token list header file */
 
 /* ---------- Global Variable --------------------------------- */
 /* ----- Structure ----- */

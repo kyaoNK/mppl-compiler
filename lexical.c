@@ -1,4 +1,4 @@
-﻿#include "lexical.h"	/* Read lexical header file */
+﻿#include "compiler.h"	/* Read lexical header file */
 
 /* ---------- Global Variable --------------------------------- */
 /* ---------- Struct Scan Module --------------- */

@@ -1,14 +1,11 @@
 #
 # Makefile for compire
 #
-OBJS = main.o lexical.o scan.o parse.o
-PP = pp
+CR = cr
+OBJS = main.o lexical.o scan.o id-list.o parse.o 
 
-# ${TC} : ${OBJS}
-# 	${CC} ${OBJS} -o $@
-
-${PP} : ${OBJS}
+${CR} : ${OBJS}
 	${CC} ${OBJS} -o $@
 	
 clean:
-	${RM} *.o ${TC} ${PP} 
+	${RM} *.o ${CR}
