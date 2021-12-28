@@ -1,19 +1,16 @@
 #include "compiler.h"
 
-/* ---------- Global Variable --------------------------------- */
 int token;      /* current token */
 char string_attr[MAX_STR_SIZE]; /* string or name */
-int num_attr;
+int num_attr;   /* number attr */
 int cnt_iter;   /* iteration statement nest counter */
 
 #if FLAG_PP
 int cnt_tab;    /* tab counter */
 #endif
 
-#if FLAG_CR
-
+#if FLAG_CR     /* variable in semantic */
 /* id info */
-char *var_name_str;
 char *procedure_name_str;
 int  *is_formal_parameters;
 /* type info */
@@ -28,10 +25,8 @@ int flag_in_call_statement;
 
 /* id */
 ID *id_procedure_name;
-
 #endif
 
-/* ---------- Function Prototype Declaration ------------------ */
 static int program ( void );      /* Program */
 static int block ( void );              /* Block */
 static int var_decl ( void );           /* Variable Declaration */
@@ -67,7 +62,7 @@ static int output_state ( void );       /* Output Statement */
 static int output_format ( void );      /* Output Format */
 static int empty_state ( void );        /* Empty Statement */
 
-/* ----- Other in Parse ----------------- */
+/* ----- Other Function in Parse ----------------- */
 void next_token ( void ) ;  /* Read Next Token and Pretty Print */
 static int error_syntax ( char * mes , int pattern) ;   /* Out Error Message */
 static int error_semantic ( char * mes ) ;
@@ -87,7 +82,7 @@ int parse ( void ) {
     cnt_tab = 0;
     #endif
 
-#if FLAG_CR
+#if FLAG_CR     /* initialize flag and id info */
     flag_in_subprogram = FALSE;
     flag_in_formal_parameters = FALSE;
     is_formal_parameters = &flag_in_formal_parameters;
@@ -141,9 +136,9 @@ int error_semantic ( char * mes ) {
     return (ERROR);
 }
 
-/* -------------------------------------------------------------------------------------- */
-/* ----------------------------- Syntax Function Definition ----------------------------- */
-/* -------------------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------------------- */
+/* ----------------------------- Function Definition in Parse ----------------------------- */
+/* ---------------------------------------------------------------------------------------- */
 
 /* program ::= "program" "NAME" ";" BLOCK "." */
 static int program ( void ) {
@@ -254,8 +249,7 @@ static int var_decl ( void ) {
         #endif
         next_token();
 
-        res_type = type();
-        if ( res_type == ERROR ) return (error_syntax("in type", ERR_PAT_SYNTAX));
+        if ( ( res_type = type() ) == ERROR ) return (error_syntax("in type", ERR_PAT_SYNTAX));
 #if FLAG_CR
         assign_type(res_type);
 #endif
@@ -427,7 +421,18 @@ static int array_type ( void ) {
     int res_type = standard_type();
     if ( res_type == ERROR ) return (error_syntax("in standard type", ERR_PAT_SYNTAX));
     
-    return ( res_type== TINTEGER ) ? TYPE_ARRAY_INT : ( res_type == TBOOLEAN ) ? TYPE_ARRAY_BOOL : TYPE_ARRAY_CHAR ;
+    if ( res_type == TYPE_INT ) {
+        return TYPE_ARRAY_INT;
+    }
+    else if ( res_type == TYPE_BOOL ) {
+        return TYPE_ARRAY_BOOL;
+    }
+    else if ( res_type == TYPE_CHAR ) {
+        return TYPE_ARRAY_CHAR;
+    }
+    else {
+        return TYPE_ARRAY;
+    }
 }
 
 /* SUBPROGRAM_DECLARATION ::= "procedure" PROCEDURE_NAME [ FORMAL_PARAMETERS ] ";" [ VARIABLE_DECLARATION ] COMPOUND_STATEMENT ";" */

@@ -7,7 +7,6 @@
 #include <string.h>
 
 /* ---------- Macro in Lexcial and Scan ---------- */
-
 /* Token Macro */
 #define	TNAME		1	/* Name : Alphabet { Alphabet | Digit } */
 #define	TPROGRAM	2	/* program : Keyword */
@@ -60,7 +59,7 @@
 #define	TBREAK		49	/* break : Keyword */
 
 /* Num Macro */
-#define NUM_OF_TOKEN 49 /* number of token */
+#define NUM_OF_TOKEN    49 /* number of token */
 #define NUM_OF_KEYWORD	28	/* Number of keyword */
 #define NUM_OF_SYMBOL  	18	/* Number of symbol */
 
@@ -70,31 +69,30 @@
 #define MAX_NUM_SIZE 32767	/* Number attitude max size in Scan */
 #define MAX_BUF_SIZE  1024  /* Max buffer size */
 
-/* ---------- Macro in Parse ---------- */
-
+/* ---------- Macro in Parse and ID List ---------- */
 /* FLAG Macro */
-#define FLAG_PP (0)
-#define FLAG_CR (1)
-#define FLAG_DEBUG (0)
+#define FLAG_PP (0)     /* flag of pretty print */
+#define FLAG_CR (1)     /* flag of cross reference */
+#define FLAG_DEBUG (0)  /* flag of debug in coding */
 
 /* Macro Boolean Result */
 #define FALSE 0
 #define TRUE  1
 
-/* Macro Syntax Result in Syntax */
+/* Macro Parse Result in Parse */
 #define NORMAL 0
 #define ERROR -1
 
-/* Macro Error Pattern in Syntax */
+/* Macro Error Pattern in Parse */
 #define ERR_PAT_TOKEN 0
 #define ERR_PAT_SYNTAX 1
 
-/* Macro Semantic Type in Semantic */
-#define TYPE_NONE    1
-#define TYPE_INT    11
-#define TYPE_CHAR   12
-#define TYPE_BOOL   13
-#define TYPE_ARRAY  14
+/* Macro Type in Parse and ID List */
+#define TYPE_NONE       10
+#define TYPE_INT        11
+#define TYPE_CHAR       12
+#define TYPE_BOOL       13
+#define TYPE_ARRAY      14
 #define TYPE_ARRAY_INT  15
 #define TYPE_ARRAY_CHAR 16
 #define TYPE_ARRAY_BOOL 17
@@ -121,7 +119,7 @@ extern struct NameTable {	/* Name Count Table Structure */
 	int cnt;
 } name_table[MAX_NUM_NAME] ;
 
-/* ---------- Struct in Semantic ---------- */
+/* ---------- Struct in ID List ---------- */
 typedef struct _Type Type;
 typedef struct _Line Line;
 typedef struct _ID ID;
@@ -157,11 +155,11 @@ extern char string_attr[MAX_STR_SIZE]; /* String from file with scan */
 
 extern int name_end;	/* Number of Name Table End */
 
-/* ---------- Variable in Parse ---------- */
+/* ---------- Variable in ID List ---------- */
 /* id info */
-extern char *var_name_str;
 extern char *procedure_name_str;
 extern int  *is_formal_parameters;
+
 /* type info */
 extern int size_array;
 
@@ -171,47 +169,36 @@ extern int flag_in_formal_parameters;
 extern int flag_in_variable_declaration;
 extern int flag_procedure_name_in_subprogram_declaration;
 
+/* id */
+extern ID *id_procedure_name;
+
 /* ---------- Function in Scan ---------- */
 extern int init_scan ( char * filepath ) ;	/* Initialize Scanner */
 extern int scan ( void ) ;					/* Scan (run) Return Token */
 extern int get_linenum ( void ) ;
 extern void end_scan ( void ) ;
 
-/* ---------- Function in Parse ---------- */
-/* 初期化 */
+/* ---------- Function in ID List ---------- */
 extern void init_id_root ( void ) ;
-/* 未定義の型のIDを専用の記号表に追加 */
 extern int add_undefined_type_id( char *name ) ;
-/* 未定義の型の記号表に型を付与 */
 extern int assign_type ( int itype ) ;
-/* 参照業の追加 */
 extern int add_ref_linenum ( char *name ) ;
-/* 検索 */
+/* procedure name */
+extern int set_procedure_name ( char *procedure_name ) ;
+extern void free_procedure_name ( void ) ;
 extern ID* search_procedure_id ( char *procedure_name ) ;
 
-/* クロスリファレンス出力 */
-extern void print_crossreference ( void ) ;
-
-/* procedure name の処理 */
-extern int set_procedure_name ( char *name ) ;
-extern void free_procedure_name ( void ) ;
-
-/* 配列の方かどうか */
 extern int is_array_type ( int itype );
-
-/* 未実装 */
-extern int exist_procedure ( char *name ) ;
 
 /* debug */
 extern void print_id_table ( ID *id_root ) ;
+extern char* get_type_str ( int itype ) ;
 
-extern char* get_type_str ( int ttype ) ;
-
+/* ---------- Function in Cross Reference ---------- */
+extern void print_crossreference ( void ) ;
 
 /* ---------- Main ---------- */
 extern void token_list ( void ) ;   /* Main Lexical */
 extern int parse ( void );          /* Main Parse */
 
 #endif /* COMPILER_H_ */
-
-

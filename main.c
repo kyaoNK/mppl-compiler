@@ -11,21 +11,10 @@ int main (int nc, char * np[]) {
         printf("File %s can not open.\n", np[1]);
         return 0;
     }
-    // printf("File %s can open.\n", np[1]);
-    end_scan();
-
-    // printf("-------------------- lexical --------------------\n");
-	// init_scan(np[1]);
-	// token_list();
-    // end_scan();
-    // printf("-------------------- lexical --------------------\n");
-
-	// printf("-------------------- parse ----------------------\n");
-	init_scan(np[1]);
+    printf("File %s can open.\n", np[1]);
     int res = parse();
     end_scan();
     printf("parse program result: %s\n", (res == ERROR) ? "ERROR" : "NORMAL");
-	// printf("-------------------- parse ----------------------\n");
     
     return 0;
 }

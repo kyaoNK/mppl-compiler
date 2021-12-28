@@ -7,7 +7,6 @@ ID *undefined_type_id_root;  /* name only variable */
 
 /* type info */
 int size_array;
-char *var_name_str;
 char *procedure_name_str;
 int  *is_formal_parameters;
 
@@ -17,35 +16,48 @@ int flag_is_formal_parameters;
 int flag_in_variable_declaration;
 int flag_procedure_name_in_subprogram_declaration;
 
-/* 内部関数 */
+/* id */
+extern ID *id_procedure_name;
+
+/* ID List Function */
 /* create struct */
 ID* create_id_root ( void ) ;
 ID* create_id ( char *name , char *procedure_name, Type *ttype, int is_formal_param , int def_linenum , Line *ref_line ) ;
 Type* create_type ( int itype ) ;
 Line* create_line ( void ) ; 
 
+void copy_id_table ( ID *id_root_src, ID *id_root_dest ) ;
+
+ID* search_id( char * name );
+ID* search_id_intable ( char *name , char *procedure_name ,  ID *id_root ) ;
+
 void release_id_root ( ID *id_root ) ;
 
 ID* get_tail_id_root ( ID *id_root ) ;
 
-ID* search_id( char * name );
+void add_formal_parameter ( char *procedure_name , Type *ttype ) ;
 
-void print_id_table ( ID *id_root ) ;
+int check_duplicate_id_intable ( char *name , char *procedure_name , ID *id_root ) ;
+
+/* debug */
+void print_func_name ( char *func_name ) ;
 void print_id ( ID *id ) ;
+void print_id_table ( ID *id_root ) ;
 void print_type ( Type *ttype ) ;
-char* get_type_str ( int ttype ) ;
-int is_array_type ( int itype ) ;
 
 int error_id ( char *mes );
 
-ID* search_id_intable ( char *name , char *procedure_name ,  ID *id_root ) ;
-
-void print_func_name ( char *func_name ) ;
+/* Cross Reference Function */
+ID* sort ( ID *id_root ) ;
+void print_id_name ( char *name , char *procedure_name ) ;
+void print_id_type ( Type *ttype ) ;
+void print_id_linenum ( int def , Line *ref ) ;
+void print_id_format ( ID *id ) ;
 
 /* --------------------------------------- */
 /* ---------- internal function ---------- */
 /* --------------------------------------- */
-
+/* create struct id */
 ID* create_id ( char *name , char *procedure_name, Type *ttype, int is_formal_param , int def_linenum , Line *ref_line ) {
     print_func_name("create id");
     ID *id;
@@ -82,6 +94,7 @@ ID* create_id ( char *name , char *procedure_name, Type *ttype, int is_formal_pa
     return (id);
 }
 
+/* create id root */
 ID* create_id_root ( void ) {
     print_func_name("create id root");
     ID *id_root;
@@ -93,6 +106,7 @@ ID* create_id_root ( void ) {
     return id_root;
 }
 
+/* create struct type */
 Type* create_type ( int itype ) {
     print_func_name("create type");
     Type *ttype;
@@ -103,6 +117,7 @@ Type* create_type ( int itype ) {
     }
     ttype->type = itype;
     ttype->size_array = size_array;
+    ttype->next_param_type = NULL;
 
     if ( is_array_type(itype) ) {
         if ( ( elem_type = (Type *)malloc(sizeof(Type)) ) == NULL ) {
@@ -125,15 +140,14 @@ Type* create_type ( int itype ) {
         elem_type->next_param_type = NULL;
 
         ttype->array_elem_type = elem_type;
-        ttype->next_param_type = NULL;
     }
     else {
         ttype->array_elem_type = NULL;
-        ttype->next_param_type = NULL;
     }
     return (ttype);
 }
 
+/* create struct line */
 Line* create_line() {
     print_func_name("create line");
     Line *line;
@@ -144,6 +158,7 @@ Line* create_line() {
     return line;
 }
 
+/* Copy of id table */
 void copy_id_table ( ID *id_root_src, ID *id_root_dest ) {
     print_func_name("copy id table");
     ID *tail = get_tail_id_root(id_root_dest);
@@ -160,6 +175,7 @@ void copy_id_table ( ID *id_root_src, ID *id_root_dest ) {
     return;
 }
 
+/* Search for id in the order of local and global */
 ID* search_id ( char *name ) {
     print_func_name("search id");
     ID *p;
@@ -186,6 +202,7 @@ ID* search_id ( char *name ) {
     return p;
 }
 
+/* search id by name and procedure name in id table */
 ID* search_id_intable ( char *name , char *procedure_name , ID *id_root ) {
     print_func_name("search id table");
     ID *p;
@@ -198,6 +215,7 @@ ID* search_id_intable ( char *name , char *procedure_name , ID *id_root ) {
     return NULL;
 }
 
+/* release id root */
 void release_id_root ( ID *id_root ) {
     print_func_name("release id root");
     id_root->next_id = NULL;
@@ -215,6 +233,7 @@ ID* get_tail_id_root ( ID *id_root ) {
     return p;
 }
 
+/* add formal parameters type to procedure name id */
 void add_formal_parameter ( char *procedure_name , Type *ttype ) {
     print_func_name("add formal parameter");
     ID *id;
@@ -281,7 +300,28 @@ void add_formal_parameter ( char *procedure_name , Type *ttype ) {
     return ;
 }
 
-/* debug function */
+/* check duplicate defined in table (global or local) */
+int check_duplicate_id_intable ( char *name , char *procedure_name , ID *id_root ) {
+    print_func_name("check duplicate");
+    ID *p;
+    if ( ( p = search_id_intable(name, procedure_name, id_root) ) == NULL ) {
+        return (NORMAL);
+    }   
+    else {
+        error_id("Duplicate defined");
+        return (ERROR);
+    }
+} 
+
+/* error id */
+int error_id ( char *mes ) {
+    printf("------------------------------------------------------------\n");
+    printf("ERROR ID LIST: line=%d | MES: %s\n", get_linenum(), mes);
+    printf("------------------------------------------------------------\n");
+    return (ERROR);
+}
+
+/* ----- Debug Function ----- */
 void print_func_name ( char *func_name ) {
     #if FLAG_DEBUG
     printf("\t%s\n", func_name);
@@ -339,6 +379,7 @@ void print_id_table ( ID *id_root ) {
     return;
 }
 
+/* type string */
 char* get_type_str ( int ttype ) {
     switch (ttype) {
         case TYPE_NONE :
@@ -364,25 +405,8 @@ char* get_type_str ( int ttype ) {
     }
 }
 
-int error_id ( char *mes ) {
-    printf("------------------------------------------------------------\n");
-    printf("ERROR ID LIST: line=%d | MES: %s\n", get_linenum(), mes);
-    printf("------------------------------------------------------------\n");
-    return (ERROR);
-}
-
-int check_duplicate_id_intable ( char *name , char *procedure_name , ID *id_root ) {
-    print_func_name("check duplicate");
-    ID *p;
-    if ( ( p = search_id_intable(name, procedure_name, id_root) ) == NULL ) {
-        return (NORMAL);
-    }   
-    else {
-        error_id("Duplicate defined");
-        return (ERROR);
-    }
-} 
-
+/* ----- Function in Cross Reference ----- */
+/* sort by lexicographic order */
 ID* sort ( ID *id_root ) {
     ID *head_sorted;
     ID *head_unsorted;
@@ -435,10 +459,68 @@ ID* sort ( ID *id_root ) {
 	return(head_sorted);
 }
 
+/* max name plus procedurename string size 30 */
+void print_id_name ( char *name, char *procedure_name) {
+    char name_str[MAX_BUF_SIZE];
+    if ( procedure_name != NULL ) {
+        sprintf(name_str, "%s:%s", name, procedure_name);
+    }
+    else {
+        sprintf(name_str, "%s", name);
+    }
+    printf("%-30s\t", name_str);
+}
+
+/* max type string size 40 */
+void print_id_type ( Type *ttype ) {
+    Type *p_type;
+    char type_str[MAX_BUF_SIZE];
+    if ( is_array_type(ttype->type) ) { /* array */
+        sprintf(type_str, "array [%d] of %s",  ttype->size_array, get_type_str(ttype->array_elem_type->type));
+    }
+    else if ( ttype->type == TYPE_PROCEDURE ) {
+        strcpy(type_str, "procedure");
+        if ( ttype->next_param_type != NULL ) strcat(type_str, "(");
+        for( p_type = ttype->next_param_type ; p_type != NULL ; p_type = p_type->next_param_type ) {
+            strcat(type_str, get_type_str(p_type->type));
+            if ( p_type->next_param_type != NULL ) strcat(type_str, ",");
+            else strcat(type_str, ")");
+        }
+    }
+    else {
+        sprintf(type_str, "%s", get_type_str(ttype->type));
+    }
+    printf("%-40s\t", type_str);
+} 
+
+/* max define and refer linenum string size 30 */
+void print_id_linenum (int def, Line *ref) {
+    char line_str[MAX_BUF_SIZE];
+    char num_str[MAX_BUF_SIZE];
+    sprintf(line_str, "%3d | ", def);
+    Line *p_line;
+    for ( p_line = ref ; p_line->refer_linenum != 0 ; p_line = p_line->p_next_line ) {;
+        sprintf(num_str, "%d", p_line->refer_linenum);
+        strcat(line_str, num_str);
+        if (p_line->p_next_line->refer_linenum != 0 ) strcat(line_str, ", ");
+    }
+    printf("%-30s\t", line_str);
+}
+
+/* id print format */
+void print_id_format ( ID *id ) {
+    print_id_name(id->name, id->procedure_name);
+    print_id_type(id->id_type);
+    print_id_linenum(id->def_linenum, id->ref_linenum);
+    printf("\n");
+}
+
 /* ----------------------------------------------------------- */
 /* -------------------- external function -------------------- */
 /* ----------------------------------------------------------- */
-/* idrootの初期化 */
+
+/* ----- Function in ID List ----- */
+/* initialize id root */
 void init_id_root ( void ) {
     print_func_name("init id root");
     global_id_root      = create_id_root();
@@ -446,12 +528,11 @@ void init_id_root ( void ) {
     undefined_type_id_root = create_id_root();
 }
 
-/* 型未定義のidを追加 , 二重定義チェック */
+/* add undefined type id into undefined type id table */
 int add_undefined_type_id ( char *name ) {
     print_func_name("add undefined type id");
     char *procedure_name = procedure_name_str;
 
-    /* 二重定義チェック */
     if ( check_duplicate_id_intable(name, procedure_name, undefined_type_id_root) == ERROR ) {
         return (ERROR);
     }
@@ -469,7 +550,7 @@ int add_undefined_type_id ( char *name ) {
     return (NORMAL);
 }
 
-/* 型未定語のIDに型を付与 */
+/* assign type to undefined type id in undefined type id table */
 int assign_type ( int itype ) {
     print_func_name("assign type");
     Type *ttype = create_type(itype);
@@ -506,6 +587,7 @@ int assign_type ( int itype ) {
     return (NORMAL);
 }
 
+/* add refer linenum to global or local id table */
 int add_ref_linenum( char *name ) {
     print_func_name("add ref linenum");
     ID *id;
@@ -533,19 +615,22 @@ int is_array_type ( int itype ) {
     else return (FALSE);
 }
 
-int set_procedure_name ( char *name ) {
+/* set procedure name into procedure_name_str */
+int set_procedure_name ( char *procedure_name ) {
     print_func_name("set procedure name");
-    int size = strlen(name) + 1;
+    int size = strlen(procedure_name) + 1;
     if ( ( procedure_name_str = (char *)malloc(size) ) == NULL ) return (ERROR);
-    strcpy(procedure_name_str, name);
+    strcpy(procedure_name_str, procedure_name);
     return (NORMAL);
 }
 
+/* set null into procedure_name_str */
 void free_procedure_name ( void ) {
     print_func_name("free procedure name");
     procedure_name_str = NULL;
 }
 
+/* search procedure name id in global id table */
 ID* search_procedure_id ( char *procedure_name ) {
     ID *p;
     p = search_id_intable(procedure_name, NULL, global_id_root);
@@ -555,59 +640,7 @@ ID* search_procedure_id ( char *procedure_name ) {
     return p;
 }
 
-
-/* max name plus procedurename  size 20 */
-void print_id_name ( char *name, char *procedure_name) {
-    char name_str[MAX_BUF_SIZE];
-    if ( procedure_name != NULL ) {
-        sprintf(name_str, "%s:%s", name, procedure_name);
-    }
-    else {
-        sprintf(name_str, "%s", name);
-    }
-    printf("%-30s\t", name_str);
-}
-
-void print_id_type ( Type *ttype ) {
-    Type *p_type;
-    char type_str[MAX_BUF_SIZE];
-    if ( is_array_type(ttype->type) ) { /* array */
-        sprintf(type_str, "array [%d] of %s",  ttype->size_array, get_type_str(ttype->array_elem_type->type));
-    }
-    else if ( ttype->type == TYPE_PROCEDURE ) {
-        strcpy(type_str, "procedure");
-        if ( ttype->next_param_type != NULL ) strcat(type_str, "(");
-        for( p_type = ttype->next_param_type ; p_type != NULL ; p_type = p_type->next_param_type ) {
-            strcat(type_str, get_type_str(p_type->type));
-            if ( p_type->next_param_type != NULL ) strcat(type_str, ",");
-            else strcat(type_str, ")");
-        }
-    }
-    else {
-        sprintf(type_str, "%s", get_type_str(ttype->type));
-    }
-    printf("%-40s\t", type_str);
-} 
-void print_id_linenum (int def, Line *ref) {
-    char line_str[MAX_BUF_SIZE];
-    char num_str[MAX_BUF_SIZE];
-    sprintf(line_str, "%3d | ", def);
-    Line *p_line;
-    for ( p_line = ref ; p_line->refer_linenum != 0 ; p_line = p_line->p_next_line ) {;
-        sprintf(num_str, "%d", p_line->refer_linenum);
-        strcat(line_str, num_str);
-        if (p_line->p_next_line->refer_linenum != 0 ) strcat(line_str, ", ");
-    }
-    printf("%-30s\t", line_str);
-}
-
-void print_id_format ( ID *id ) {
-    print_id_name(id->name, id->procedure_name);
-    print_id_type(id->id_type);
-    print_id_linenum(id->def_linenum, id->ref_linenum);
-    printf("\n");
-}
-
+/* ----- Function in Cross Reference ----- */
 void print_crossreference ( void ) {
 #if FLAG_DEBUG
     printf("global");
